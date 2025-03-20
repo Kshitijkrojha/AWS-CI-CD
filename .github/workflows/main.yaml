@@ -1,52 +1,69 @@
 name: Deploy to Amazon ECS
- 
+
 on:
   push:
     branches:
       - main
- 
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
- 
+
     steps:
-    # Step 1: Checkout code
-    - name: Checkout code
-      uses: actions/checkout@v2
- 
-    # Step 2: Login to Amazon ECR
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
- 
-    # Step 3: Build, tag, and push Docker image to ECR
-    - name: Build, tag, and push image to Amazon ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: studentperformance
-        IMAGE_TAG: latest
-      run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
- 
-    # Step 4: Download existing ECS task definition and update it with new image
-    - name: Download task definition
-      run: |
-        aws ecs describe-task-definition --task-definition ${{ secrets.ECS_TASK_DEFINITION }} \
-        --query taskDefinition > task-definition.json
- 
-    - name: Fill in the new image ID in the Amazon ECS task definition
-      id: task-def
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-      with:
-        task-definition: task-definition.json
-        container-name: ${{ secrets.ECS_CONTAINER_NAME }}
-        image: ${{ steps.login-ecr.outputs.registry }}/studentperformance:${{ github.sha }}
- 
-    # Step 5: Deploy updated task definition to ECS service
-    - name: Deploy to Amazon ECS service
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-      with:
-        service-name: ${{ secrets.ECS_SERVICE }}
-        cluster-name: ${{ secrets.ECS_CLUSTER }}
-        wait-for-service-stability: true
+      # Step 1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Step 2: Set AWS Region
+      - name: Set AWS Region
+        run: echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+
+      # Step 3: Configure AWS Credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Step 4: Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      # Step 5: Build, tag, and push Docker image to ECR
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: studentperformance
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # Step 6: Install jq (if not available)
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      # Step 7: Download existing ECS task definition and clean JSON
+      - name: Download and clean task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ secrets.ECS_TASK_DEFINITION }} \
+          --query taskDefinition | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities)' > task-definition.json
+
+      # Step 8: Update ECS task definition with new image
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ secrets.ECS_CONTAINER_NAME }}
+          image: ${{ steps.login-ecr.outputs.registry }}/studentperformance:${{ github.sha }}
+
+      # Step 9: Deploy updated task definition to ECS service
+      - name: Deploy to Amazon ECS service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          service-name: ${{ secrets.ECS_SERVICE }}
+          cluster-name: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
