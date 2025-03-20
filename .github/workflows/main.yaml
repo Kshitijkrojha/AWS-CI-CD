@@ -14,21 +14,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 2: Configure AWS Credentials
+      # Step 2: Check if AWS Credentials Exist (Skip Deployment if Missing)
+      - name: Check AWS Credentials
+        run: |
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "⚠️ AWS credentials are missing. Skipping deployment."
+            exit 0
+          fi
+
+      # Step 3: Configure AWS Credentials (Only Runs if Credentials Exist)
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v1
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-north-1  # Stockholm, Europe
 
-      # Step 3: Login to Amazon ECR
+      # Step 4: Login to Amazon ECR
       - name: Login to Amazon ECR
         id: login-ecr
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         uses: aws-actions/amazon-ecr-login@v1
 
-      # Step 4: Build, tag, and push Docker image to ECR
+      # Step 5: Build, tag, and push Docker image to ECR
       - name: Build, tag, and push image to Amazon ECR
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: studentperformance
@@ -37,8 +48,9 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      # Step 5: Deploy to ECS
+      # Step 6: Deploy to ECS
       - name: Deploy to Amazon ECS
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           service-name: ${{ secrets.ECS_SERVICE }}
