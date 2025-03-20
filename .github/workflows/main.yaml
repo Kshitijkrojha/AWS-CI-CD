@@ -14,9 +14,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 2: Debug AWS Region (Ensure it's correctly set)
+      # Step 2: Debug AWS Region (optional, for troubleshooting)
       - name: Debug AWS Region
-        run: echo "AWS_REGION=${{ secrets.AWS_REGION }}"
+        run: echo "Using AWS Region: eu-north-1"
 
       # Step 3: Configure AWS Credentials
       - name: Configure AWS Credentials
@@ -24,7 +24,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: eu-north-1  # Set to Stockholm region
 
       # Step 4: Login to Amazon ECR
       - name: Login to Amazon ECR
@@ -41,27 +41,8 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      # Step 6: Install jq (Required for JSON processing)
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      # Step 7: Download and clean existing ECS task definition
-      - name: Download and clean ECS task definition
-        run: |
-          aws ecs describe-task-definition --task-definition ${{ secrets.ECS_TASK_DEFINITION }} \
-          --query taskDefinition | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities)' > task-definition.json
-
-      # Step 8: Update ECS task definition with new image
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: ${{ secrets.ECS_CONTAINER_NAME }}
-          image: ${{ steps.login-ecr.outputs.registry }}/studentperformance:${{ github.sha }}
-
-      # Step 9: Deploy updated task definition to ECS service
-      - name: Deploy to Amazon ECS service
+      # Step 6: Deploy to ECS
+      - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           service-name: ${{ secrets.ECS_SERVICE }}
